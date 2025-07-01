@@ -1,0 +1,88 @@
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, { cors: { origin: '*' } });
+
+let players = {};
+let obstacles = [];
+
+app.use(express.static('../client'));
+
+io.on('connection', (socket) => {
+    console.log(`Pemain terhubung: ${socket.id}`);
+
+    // Tambah pemain baru
+    players[socket.id] = {
+        id: socket.id,
+        x: 50,
+        y: Math.random() * 500,
+        character: 'alpaca',
+        score: 0,
+        isDancing: false
+    };
+
+    // Kirim data pemain dan rintangan ke klien baru
+    socket.emit('init', { players, obstacles });
+    io.emit('playerUpdate', players);
+
+    // Update posisi pemain
+    socket.on('playerMove', (data) => {
+        if (players[socket.id]) {
+            players[socket.id].x = data.x;
+            players[socket.id].y = data.y;
+            players[socket.id].score = data.score;
+            io.emit('playerUpdate', players);
+        }
+    });
+
+    // Sabotase (bom glitter)
+    socket.on('sabotage', (data) => {
+        obstacles.push({
+            x: data.x,
+            y: data.y,
+            type: data.type,
+            time: Date.now()
+        });
+        io.emit('obstacleUpdate', obstacles);
+    });
+
+    // Tarian panik
+    socket.on('dance', (data) => {
+        if (players[socket.id]) {
+            players[socket.id].isDancing = data.isDancing;
+            io.emit('playerUpdate', players);
+        }
+    });
+
+    // Chat
+    socket.on('chat', (msg) => {
+        io.emit('chat', { id: socket.id, message: msg });
+    });
+
+    // Hapus pemain saat disconnect
+    socket.on('disconnect', () => {
+        console.log(`Pemain terputus: ${socket.id}`);
+        delete players[socket.id];
+        io.emit('playerUpdate', players);
+    });
+});
+
+// Spawn rintangan acak
+setInterval(() => {
+    if (Math.random() < 0.1) {
+        obstacles.push({
+            x: 800,
+            y: Math.random() * 550,
+            type: 'bubble',
+            time: Date.now()
+        });
+        io.emit('obstacleUpdate', obstacles);
+    }
+    // Hapus rintangan lama
+    obstacles = obstacles.filter(ob => Date.now() - ob.time < 5000);
+    io.emit('obstacleUpdate', obstacles);
+}, 1000);
+
+server.listen(3000, () => console.log('Server berjalan di http://localhost:3000'));
